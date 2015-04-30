@@ -1,0 +1,266 @@
+Docker and Docker Machine
+A taste
+30 Apr 2015
+
+Arnau Siches
+
+
+
+* What and Why
+
+- Docker
+- Docker Machine
+
+
+* Workflows
+
+- Alone
+- Party
+
+* Alone (try a new language) ...
+
+    $ docker run --rm -it julia
+    julia > 2 + 2
+    4
+    julia > quit()
+    $
+
+* ... Alone (try a new language)
+
+    $ docker images
+    REPOSITORY             TAG                 IMAGE ID            CREATED             VIRTUAL SIZE
+    julia                  latest              3640bdebeb32        8 days ago          275.7 MB
+
+    $ docker ps -a
+    CONTAINER ID  IMAGE  COMMAND  CREATED  STATUS  PORTS                                                                        NAMES
+
+* Alone (isolated scripts) ...
+
+    $ docker run --rm -t \
+      -v $(pwd)/foo.rb:/usr/src/app/foo.rb \
+      ruby:2.2 \
+      bundle install && bundle exec foo.rb
+
+
+* Alone (private image) ...
+
+Define
+
+.code Dockerfile.iso8601
+
+And build
+
+    $ docker build -t arnau/iso8601 .
+
+* ... Alone (private image)
+
+    $ docker run --rm -t \
+      -v $(pwd):/usr/src/iso8601 arnau/iso8601
+      ...
+      Finished in 0.23533 seconds (files took 0.28657 seconds to load)
+      144 examples, 0 failures
+
+      Randomized with seed 29181
+
+* Alone (composition) ...
+
+    docker run \
+      --name foo_data \
+      -v /data \
+      -v $(pwd)/backup:/backup \
+      rethinkdb true
+
+    docker run -d \
+      --name foo_db \
+      --restart=on-failure:3 \
+      --volumes-from foo_data \
+      -p 0.0.0.0:9990:8080 \
+      -p 0.0.0.0:28015:28015 \
+      -p 0.0.0.0:29015:29015 \
+      rethinkdb
+
+* ... Alone (composition) ...
+
+    open http://$(docker-machine ip dev):9990
+
+.image rethinkdb-ui.png
+
+* ... Alone (composition) ...
+
+    $ docker images
+    REPOSITORY             TAG                 IMAGE ID            CREATED             VIRTUAL SIZE
+    rethinkdb              latest              ed6d9397ca6a        8 days ago          195.9 MB
+    julia                  latest              3640bdebeb32        8 days ago          275.7 MB
+    arnau/iso8601          latest              cd8b56e963cd        8 days ago          807.5 MB
+    ruby                   2.2                 a37c20b03f88        2 weeks ago         775.1 MB
+    debian                 jessie              65688f7c61c4        4 weeks ago         122.8 MB
+
+Inspect the running containers
+
+    $ docker ps
+    CONTAINER ID  IMAGE              COMMAND                CREATED     STATUS     PORTS                                                                       NAMES
+    5762a6f1f455  rethinkdb:latest   "rethinkdb --bind al   3 days ago  Up 3 days  0.0.0.0:28015->28015/tcp, 0.0.0.0:29015->29015/tcp, 0.0.0.0:9990->8080/tcp  foo_db
+
+Inspect all containers
+
+    $ docker ps -a
+    CONTAINER ID  IMAGE             COMMAND                CREATED      STATUS                  PORTS                                                                       NAMES
+    5762a6f1f455  rethinkdb:latest  "rethinkdb --bind al   3 days ago   Up 3 days               0.0.0.0:28015->28015/tcp, 0.0.0.0:29015->29015/tcp, 0.0.0.0:9990->8080/tcp  foo_db
+    49e868728202  rethinkdb:latest  "true"                 11 days ago  Exited (0) 11 days ago                                                                              foo_data
+
+
+* ... Alone (composition) ...
+
+Connect to the database from another container.
+
+    $ docker run --rm -it --link foo_db:db foo_app bash
+
+    root@510c39a74bd7:/home/foo# export -p
+
+    declare -x DB_PORT="tcp://172.17.0.97:8080"
+    declare -x DB_PORT_28015_TCP="tcp://172.17.0.97:28015"
+    declare -x DB_PORT_28015_TCP_ADDR="172.17.0.97"
+    declare -x DB_PORT_28015_TCP_PORT="28015"
+    declare -x DB_PORT_28015_TCP_PROTO="tcp"
+    declare -x DB_PORT_29015_TCP="tcp://172.17.0.97:29015"
+    declare -x DB_PORT_29015_TCP_ADDR="172.17.0.97"
+    declare -x DB_PORT_29015_TCP_PORT="29015"
+    declare -x DB_PORT_29015_TCP_PROTO="tcp"
+    declare -x DB_PORT_8080_TCP="tcp://172.17.0.97:8080"
+    declare -x DB_PORT_8080_TCP_ADDR="172.17.0.97"
+    declare -x DB_PORT_8080_TCP_PORT="8080"
+    declare -x DB_PORT_8080_TCP_PROTO="tcp"
+
+* ... Alone (composition) ...
+
+    root@510c39a74bd7:/home/foo# cat /etc/hosts
+
+    172.17.0.98     510c39a74bd7
+    127.0.0.1       localhost
+    ::1     localhost ip6-localhost ip6-loopback
+    fe00::0 ip6-localnet
+    ff00::0 ip6-mcastprefix
+    ff02::1 ip6-allnodes
+    ff02::2 ip6-allrouters
+    172.17.0.97     db 5762a6f1f455 foo_db
+
+
+* ... Alone (composition)
+
+    $ cat lib/db.js
+
+    import rethinkdb from 'rethinkdbdash';
+
+    const host = 'db'; // or process.env.DB_PORT_28015_TCP_ADDR
+    const port = process.env.DB_PORT_28015_TCP_PORT;
+    const dbName = 'foo';
+
+    let r = rethinkdb({host, port});
+
+    export default {dbName, r};
+
+
+* Party (build)
+
+Put your Dockerfile(s) with the codebase so anyone can build the image.
+
+Use the Dockerfile in the current directory
+
+    $ docker build -t foo .
+
+Use another directory
+
+    $ docker build -t foo ./db
+
+Use another filename
+
+    $ docker build -t foo -f Dockerfile.db .
+
+
+* Party (push, pull)
+
+Push to a registry (registry.docker.com by default)
+
+    $ docker push arnau/iso8601:latest
+
+Make sure you have rights *and* you are logged in for private repos
+
+    $ docker login
+    ...
+    $ docker push ustwo/deal:1.0
+
+Don't miss what we already have https://registry.hub.docker.com/u/ustwo/
+
+    $ docker login
+    ...
+    $ docker pull ustwo/deal:1.0
+
+
+* Party (Github hooks) ...
+
+.image registry-create.png
+.image registry-source.png
+
+* ... Party (Github hooks)
+
+.image registry-naming.png
+
+
+* Party (tarball)
+
+    $ docker save foo:1.0 -o foo.tar.gz
+    $ docker load -i foo.tar.gz
+
+Or in one go via image
+
+    $ docker $(docker-machine config dev) save foo:1.0 | docker $(docker-machine config foo_aws) load
+
+Or container
+
+    $ docker $(docker-machine config dev) export foo | docker $(docker-machine config foo_aws) import
+
+
+* CI? CD?
+
+Yes sure, but not via Travis for now.  Meet CircleCI.
+
+
+* Pain points
+
+In no particular order:
+
+- ENV vars for linked containers.
+- Private Docker Registry setup.
+- The official Docker Registry is slooow.
+- When you automate a build, you're no longer able to push images by hand.
+- Container autodiscovery (nginx-proxy, docker-hosts, consul.io, etc.)
+- Dockerfile back to hellscript. (packer.io?)
+- Managing multiple containers all together (docker-compose, make, etc.)
+- Commands can be difficult to remember (make, shellscript, etc.)
+- FileSystem signaling (LiveReload, Watchify, etc.)
+
+PD.- Resist the urge to have multiple processes in one container. It is wrong.
+
+
+* Day to day with containers
+
+Run on-time commands
+
+    $ docker run --rm -t <image> <command>
+    $ docker exec -t <container> <command>
+
+Inspection
+
+    $ docker top <container>
+    $ docker stats <container>
+    $ docker logs <container>
+    $ docker inspect <container | image>
+
+Container lifecycle
+
+    $ docker start <container>
+    $ docker stop <container>
+    $ docker restart <container>
+    $ docker rm <container> # or docker rm -f <c>
+    $ docker kill <container>
+
